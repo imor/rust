@@ -179,6 +179,7 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
         next_metavar: &mut usize,
         seq_depth: usize,
     ) {
+        debug!("Inside compute_locs::inner, input token trees: {tts:?}");
         for tt in tts {
             match tt {
                 TokenTree::Token(token) => {
@@ -190,6 +191,8 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
 
                     locs.push(MatcherLoc::Delimited);
                     locs.push(MatcherLoc::Token { token: open_token });
+                    let tts = &delimited.tts;
+                    debug!("Inside compute_locs::TokenTree::Delimited calling inner with tts {tts:?}");
                     inner(&delimited.tts, locs, next_metavar, seq_depth);
                     locs.push(MatcherLoc::Token { token: close_token });
                 }
@@ -205,6 +208,8 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
                     let op = seq.kleene.op;
                     let idx_first = locs.len();
                     let idx_seq = idx_first - 1;
+                    let tts = &seq.tts;
+                    debug!("Inside compute_locs::TokenTree::Sequence calling inner with tts {tts:?}");
                     inner(&seq.tts, locs, next_metavar, seq_depth + 1);
 
                     if let Some(separator) = &seq.separator {
@@ -236,6 +241,7 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
                 TokenTree::MetaVar(..) | TokenTree::MetaVarExpr(..) => unreachable!(),
             }
         }
+        debug!("Inside compute_locs::inner, output matcher locations: {locs:?}");
     }
 
     let mut locs = vec![];
@@ -245,6 +251,7 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
     // A final entry is needed for eof.
     locs.push(MatcherLoc::Eof);
 
+    debug!("Inside compute_locs, output matcher locations: {locs:?}");
     locs
 }
 
@@ -300,6 +307,7 @@ impl MatcherPos {
     }
 }
 
+#[derive(Debug)]
 enum EofMatcherPositions {
     None,
     One(MatcherPos),
@@ -461,11 +469,13 @@ impl TtParser {
         approx_position: usize,
         track: &mut T,
     ) -> Option<NamedParseResult<T::Failure>> {
+        debug!("Inside parse_tt_inner.");
         // Matcher positions that would be valid if the macro invocation was over now. Only
         // modified if `token == Eof`.
         let mut eof_mps = EofMatcherPositions::None;
 
         while let Some(mut mp) = self.cur_mps.pop() {
+            debug!("current matcher pos: {mp:?}.");
             let matcher_loc = &matcher[mp.idx];
             track.before_match_loc(self, matcher_loc);
 
@@ -482,15 +492,19 @@ impl TtParser {
                     // another mp in `cur_mps` will match.
                     if matches!(t, Token { kind: DocComment(..), .. }) {
                         mp.idx += 1;
+                        debug!("MatcherLoc::Token cur_mps.push({mp:?}).");
                         self.cur_mps.push(mp);
                     } else if token_name_eq(&t, token) {
                         mp.idx += 1;
+                        debug!("MatcherLoc::Token next_mps.push({mp:?}).");
                         self.next_mps.push(mp);
+                    } else if token_name_eq(&t, token) {
                     }
                 }
                 MatcherLoc::Delimited => {
                     // Entering the delimiter is trivial.
                     mp.idx += 1;
+                    debug!("MatcherLoc::Delimited cur_mps.push({mp:?}).");
                     self.cur_mps.push(mp);
                 }
                 &MatcherLoc::Sequence {
@@ -507,14 +521,17 @@ impl TtParser {
 
                     if matches!(op, KleeneOp::ZeroOrMore | KleeneOp::ZeroOrOne) {
                         // Try zero matches of this sequence, by skipping over it.
-                        self.cur_mps.push(MatcherPos {
+                        let mp = MatcherPos {
                             idx: idx_first_after,
                             matches: Rc::clone(&mp.matches),
-                        });
+                        };
+                        debug!("MatcherLoc::Sequence cur_mps.push({mp:?}).");
+                        self.cur_mps.push(mp);
                     }
 
                     // Try one or more matches of this sequence, by entering it.
                     mp.idx += 1;
+                    debug!("MatcherLoc::Sequence cur_mps.push({mp:?}).");
                     self.cur_mps.push(mp);
                 }
                 &MatcherLoc::SequenceKleeneOpNoSep { op, idx_first } => {
@@ -525,11 +542,13 @@ impl TtParser {
                         idx: mp.idx + 1, // +1 skips the Kleene op
                         matches: Rc::clone(&mp.matches),
                     };
+                    debug!("MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({ending_mp:?}).");
                     self.cur_mps.push(ending_mp);
 
                     if op != KleeneOp::ZeroOrOne {
                         // Try another repetition.
                         mp.idx = idx_first;
+                        debug!("MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({mp:?}).");
                         self.cur_mps.push(mp);
                     }
                 }
@@ -541,11 +560,13 @@ impl TtParser {
                         idx: mp.idx + 2, // +2 skips the separator and the Kleene op
                         matches: Rc::clone(&mp.matches),
                     };
+                    debug!("MatcherLoc::SequenceSep cur_mps.push({ending_mp:?}).");
                     self.cur_mps.push(ending_mp);
 
                     if token_name_eq(token, separator) {
                         // The separator matches the current token. Advance past it.
                         mp.idx += 1;
+                        debug!("MatcherLoc::SequenceSep next_mps.push({mp:?}).");
                         self.next_mps.push(mp);
                     }
                 }
@@ -553,6 +574,7 @@ impl TtParser {
                     // We are past the sequence separator. This can't be a `?` Kleene op, because
                     // they don't permit separators. Try another repetition.
                     mp.idx = idx_first;
+                    debug!("MatcherLoc::SequenceKleeneOpAfterSep cur_mps.push({mp:?}).");
                     self.cur_mps.push(mp);
                 }
                 &MatcherLoc::MetaVarDecl { span, kind, .. } => {
@@ -561,11 +583,13 @@ impl TtParser {
                     // to determine any edition-specific matching behavior for non-terminals.
                     if let Some(kind) = kind {
                         if Parser::nonterminal_may_begin_with(kind, token) {
+                            debug!("MatcherLoc::MetaVarDecl bb_mps.push({mp:?}).");
                             self.bb_mps.push(mp);
                         }
                     } else {
                         // E.g. `$e` instead of `$e:expr`, reported as a hard error if actually used.
                         // Both this check and the one in `nameize` are necessary, surprisingly.
+                        debug!("MatcherLoc::MetaVarDecl error: missing fragment specifier");
                         return Some(Error(span, "missing fragment specifier".to_string()));
                     }
                 }
@@ -578,7 +602,8 @@ impl TtParser {
                             EofMatcherPositions::One(_) | EofMatcherPositions::Multiple => {
                                 EofMatcherPositions::Multiple
                             }
-                        }
+                        };
+                        debug!("eof_mps: {eof_mps:?}.");
                     }
                 }
             }
@@ -595,16 +620,20 @@ impl TtParser {
                     self.nameize(matcher, matches)
                 }
                 EofMatcherPositions::Multiple => {
+                    debug!("MatcherLoc::MetaVarDecl error: ambiguity: multiple successful parses");
                     Error(token.span, "ambiguity: multiple successful parses".to_string())
                 }
-                EofMatcherPositions::None => Failure(T::build_failure(
-                    Token::new(
-                        token::Eof,
-                        if token.span.is_dummy() { token.span } else { token.span.shrink_to_hi() },
-                    ),
-                    approx_position,
-                    "missing tokens in macro arguments",
-                )),
+                EofMatcherPositions::None => {
+                    debug!("MatcherLoc::MetaVarDecl error: missing tokens in macro arguments");
+                    Failure(T::build_failure(
+                        Token::new(
+                            token::Eof,
+                            if token.span.is_dummy() { token.span } else { token.span.shrink_to_hi() },
+                        ),
+                        approx_position,
+                        "missing tokens in macro arguments",
+                    ))
+                },
             })
         } else {
             None
@@ -618,6 +647,7 @@ impl TtParser {
         matcher: &'matcher [MatcherLoc],
         track: &mut T,
     ) -> NamedParseResult<T::Failure> {
+        debug!("Inside parse_tt. Matcher: {matcher:?}");
         // A queue of possible matcher positions. We initialize it with the matcher position in
         // which the "dot" is before the first token of the first token tree in `matcher`.
         // `parse_tt_inner` then processes all of these possible matcher positions and produces
@@ -650,6 +680,7 @@ impl TtParser {
                 (0, 0) => {
                     // There are no possible next positions AND we aren't waiting for the black-box
                     // parser: syntax error.
+                    debug!("parse_tt: error: no rules expected this token in macro call");
                     return Failure(T::build_failure(
                         parser.token.clone(),
                         parser.approx_token_stream_pos(),
@@ -660,6 +691,7 @@ impl TtParser {
                 (_, 0) => {
                     // Dump all possible `next_mps` into `cur_mps` for the next iteration. Then
                     // process the next token.
+                    debug!("parse_tt: some next_mps but no bb_mps. Continuing next loop iteration");
                     self.cur_mps.append(&mut self.next_mps);
                     parser.to_mut().bump();
                 }
@@ -691,6 +723,7 @@ impl TtParser {
                             }
                             Ok(nt) => nt,
                         };
+                        debug!("parse_tt: parse_nonterminal result: {nt:?})");
                         let m = match nt {
                             NtOrTt::Nt(nt) => MatchedNonterminal(Lrc::new(nt)),
                             NtOrTt::Tt(tt) => MatchedTokenTree(tt),
@@ -700,6 +733,7 @@ impl TtParser {
                     } else {
                         unreachable!()
                     }
+                    debug!("parse_tt: cur_mps.push({mp:?})");
                     self.cur_mps.push(mp);
                 }
 
@@ -718,6 +752,7 @@ impl TtParser {
         matcher: &[MatcherLoc],
         token_span: rustc_span::Span,
     ) -> NamedParseResult<F> {
+        debug!("inside ambiguity_error");
         let nts = self
             .bb_mps
             .iter()
@@ -729,6 +764,9 @@ impl TtParser {
             })
             .collect::<Vec<String>>()
             .join(" or ");
+        let macro_name = &self.macro_name;
+        let next_mps = &self.next_mps;
+        debug!("ambiguity_error: nts: {nts:?} for macro: {macro_name:?}. next_mps: {next_mps:?}");
 
         Error(
             token_span,
@@ -748,6 +786,7 @@ impl TtParser {
         matcher: &[MatcherLoc],
         mut res: I,
     ) -> NamedParseResult<F> {
+        debug!("inside nameize");
         // Make that each metavar has _exactly one_ binding. If so, insert the binding into the
         // `NamedParseResult`. Otherwise, it's an error.
         let mut ret_val = FxHashMap::default();
@@ -761,6 +800,7 @@ impl TtParser {
                         }
                     };
                 } else {
+                    debug!("nameize: missing fragment specifier for bind {bind}");
                     // E.g. `$e` instead of `$e:expr`, reported as a hard error if actually used.
                     // Both this check and the one in `parse_tt_inner` are necessary, surprisingly.
                     return Error(span, "missing fragment specifier".to_string());

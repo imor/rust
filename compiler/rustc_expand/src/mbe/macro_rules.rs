@@ -301,6 +301,7 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
     lhses: &'matcher [Vec<MatcherLoc>],
     track: &mut T,
 ) -> Result<(usize, NamedMatches), CanRetry> {
+    debug!("Inside try_match_macro, token_stream: {arg:?}, lhses: {lhses:?}");
     // We create a base parser that can be used for the "black box" parts.
     // Every iteration needs a fresh copy of that parser. However, the parser
     // is not mutated on many of the iterations, particularly when dealing with
@@ -349,8 +350,8 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
                 trace!("Failed to match arm, trying the next one");
                 // Try the next arm.
             }
-            Error(_, _) => {
-                debug!("Fatal error occurred during matching");
+            Error(_, s) => {
+                debug!("Fatal error occurred during matching: {s}");
                 // We haven't emitted an error yet, so we can retry.
                 return Err(CanRetry::Yes);
             }
@@ -444,6 +445,7 @@ pub fn compile_declarative_macro(
         ),
     ];
     // Convert it into `MatcherLoc` form.
+    debug!("compile_declarative_macro: compute_locs for macro_rules! macro");
     let argument_gram = mbe::macro_parser::compute_locs(&argument_gram);
 
     let create_parser = || {
@@ -499,6 +501,7 @@ pub fn compile_declarative_macro(
         MatchedSeq(s) => s
             .iter()
             .map(|m| {
+                debug!("compile_declarative_macro: got named_match {m:?}");
                 if let MatchedTokenTree(tt) = m {
                     let tt = mbe::quoted::parse(
                         TokenStream::new(vec![tt.clone()]),
@@ -592,6 +595,7 @@ pub fn compile_declarative_macro(
                 // Ignore the delimiters around the matcher.
                 match lhs {
                     mbe::TokenTree::Delimited(_, delimited) => {
+                        debug!("compile_declarative_macro: compute_locs for macro lhs");
                         mbe::macro_parser::compute_locs(&delimited.tts)
                     }
                     _ => sess.parse_sess.span_diagnostic.span_bug(def.span, "malformed macro lhs"),
