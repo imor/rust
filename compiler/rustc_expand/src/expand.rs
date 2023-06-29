@@ -634,6 +634,7 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
         invoc: Invocation,
         ext: &SyntaxExtensionKind,
     ) -> ExpandResult<AstFragment, Invocation> {
+        debug!("Inside expand::expand_invoc");
         let recursion_limit =
             self.cx.reduced_recursion_limit.unwrap_or(self.cx.ecfg.recursion_limit);
         if !recursion_limit.value_within_limit(self.cx.current_expansion.depth) {

@@ -194,6 +194,8 @@ fn expand_macro<'cx>(
     // Macros defined in the current crate have a real node id,
     // whereas macros from an external crate have a dummy id.
     let is_local = node_id != DUMMY_NODE_ID;
+    let macro_locality = if is_local { "local" } else { "external" };
+    debug!("Inside macro_rules::expand_macro for a {macro_locality} macro");
 
     if cx.trace_macros() {
         let msg = format!("expanding `{}! {{ {} }}`", name, pprust::tts_to_string(&arg));

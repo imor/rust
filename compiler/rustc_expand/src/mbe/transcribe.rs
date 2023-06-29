@@ -83,6 +83,7 @@ pub(super) fn transcribe<'a>(
     src_span: DelimSpan,
     transparency: Transparency,
 ) -> PResult<'a, TokenStream> {
+    debug!("Inside transcribe::transcribe");
     // Nothing for us to transcribe...
     if src.tts.is_empty() {
         return Ok(TokenStream::default());

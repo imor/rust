@@ -475,8 +475,8 @@ impl TtParser {
         let mut eof_mps = EofMatcherPositions::None;
 
         while let Some(mut mp) = self.cur_mps.pop() {
-            debug!("current matcher pos: {mp:?}.");
             let matcher_loc = &matcher[mp.idx];
+            debug!("current matcher pos: {mp:?}. matcher_loc: {matcher_loc:?}");
             track.before_match_loc(self, matcher_loc);
 
             match matcher_loc {
