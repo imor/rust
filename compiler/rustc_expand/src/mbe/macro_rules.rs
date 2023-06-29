@@ -503,7 +503,7 @@ pub fn compile_declarative_macro(
         MatchedSeq(s) => s
             .iter()
             .map(|m| {
-                debug!("compile_declarative_macro: got named_match {m:?}");
+                debug!("compile_declarative_macro: lhs NamedMatch {m:?}");
                 if let MatchedTokenTree(tt) = m {
                     let tt = mbe::quoted::parse(
                         TokenStream::new(vec![tt.clone()]),
@@ -528,6 +528,7 @@ pub fn compile_declarative_macro(
         MatchedSeq(s) => s
             .iter()
             .map(|m| {
+                debug!("compile_declarative_macro: rhs NamedMatch {m:?}");
                 if let MatchedTokenTree(tt) = m {
                     return mbe::quoted::parse(
                         TokenStream::new(vec![tt.clone()]),
@@ -545,6 +546,8 @@ pub fn compile_declarative_macro(
             .collect::<Vec<mbe::TokenTree>>(),
         _ => sess.parse_sess.span_diagnostic.span_bug(def.span, "wrong-structured rhs"),
     };
+    debug!("compile_declarative_macro: parsed_lhses: {lhses:?}");
+    debug!("compile_declarative_macro: parsed_rhses: {rhses:?}");
 
     for rhs in &rhses {
         valid &= check_rhs(&sess.parse_sess, rhs);
