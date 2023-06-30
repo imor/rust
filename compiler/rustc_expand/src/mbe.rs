@@ -11,6 +11,7 @@ pub(crate) mod metavar_expr;
 pub(crate) mod quoted;
 pub(crate) mod transcribe;
 
+use std::fmt::{Display, Formatter};
 use metavar_expr::MetaVarExpr;
 use rustc_ast::token::{Delimiter, NonterminalKind, Token, TokenKind};
 use rustc_ast::tokenstream::DelimSpan;
@@ -60,6 +61,22 @@ pub(crate) enum KleeneOp {
     OneOrMore,
     /// Kleene optional (`?`) for zero or one repetitions
     ZeroOrOne,
+}
+
+impl Display for KleeneOp {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        match self {
+            KleeneOp::ZeroOrMore => {
+                write!(f, "*")
+            }
+            KleeneOp::OneOrMore => {
+                write!(f, "+")
+            }
+            KleeneOp::ZeroOrOne => {
+                write!(f, "?")
+            }
+        }
+    }
 }
 
 /// Similar to `tokenstream::TokenTree`, except that `Sequence`, `MetaVar`, `MetaVarDecl`, and

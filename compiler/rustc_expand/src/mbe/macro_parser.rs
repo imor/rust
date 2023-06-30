@@ -80,7 +80,6 @@ use rustc_ast_pretty::pprust;
 use rustc_data_structures::fx::FxHashMap;
 use rustc_data_structures::sync::Lrc;
 use rustc_errors::ErrorGuaranteed;
-use rustc_lint_defs::pluralize;
 use rustc_parse::parser::{NtOrTt, Parser};
 use rustc_span::symbol::Ident;
 use rustc_span::symbol::MacroRulesNormalizedIdent;
@@ -166,8 +165,8 @@ impl Display for MatcherLoc {
             // These are not printed in the diagnostic
             MatcherLoc::Delimited => f.write_str("delimiter"),
             MatcherLoc::Sequence { .. } => f.write_str("sequence start"),
-            MatcherLoc::SequenceKleeneOpNoSep { .. } => f.write_str("sequence end"),
-            MatcherLoc::SequenceKleeneOpAfterSep { .. } => f.write_str("sequence end"),
+            MatcherLoc::SequenceKleeneOpNoSep { op, .. } => write!(f, "sequence operator {op}"),
+            MatcherLoc::SequenceKleeneOpAfterSep { .. } => write!(f, "sequence operator"),
         }
     }
 }
@@ -758,7 +757,7 @@ impl TtParser {
             .iter()
             .map(|mp| match &matcher[mp.idx] {
                 MatcherLoc::MetaVarDecl { bind, kind: Some(kind), .. } => {
-                    format!("{} ('{}')", kind, bind)
+                    format!("meta-variable ${}:{}", bind, kind)
                 }
                 _ => unreachable!(),
             })
@@ -768,14 +767,32 @@ impl TtParser {
         let next_mps = &self.next_mps;
         debug!("ambiguity_error: nts: {nts:?} for macro: {macro_name:?}. next_mps: {next_mps:?}");
 
+        let mps = self.next_mps.iter().map(|mp| match &matcher[mp.idx] {
+            MatcherLoc::Sequence { idx_first_after, .. } => {
+                let m = &matcher[*idx_first_after];
+                format!("{m}")
+            }
+            MatcherLoc::SequenceKleeneOpAfterSep { idx_first, .. } => {
+                let m = &matcher[*idx_first];
+                format!("{m}")
+            }
+            MatcherLoc::SequenceKleeneOpNoSep { idx_first, op } => {
+                let m = &matcher[*idx_first];
+                format!("{m} in sequence ending with {op}")
+            }
+            m => {
+                format!("{m}")
+            }
+        }).collect::<Vec<String>>().join(" or ");
+
         Error(
             token_span,
             format!(
-                "local ambiguity when calling macro `{}`: multiple parsing options: {}",
+                "ambiguity when calling macro `{}`: {}",
                 self.macro_name,
                 match self.next_mps.len() {
-                    0 => format!("built-in NTs {}.", nts),
-                    n => format!("built-in NTs {} or {n} other option{s}.", nts, s = pluralize!(n)),
+                    0 => format!("token can either match {nts}."),
+                    _ => format!("token can either match {nts} or {mps}"),
                 }
             ),
         )
