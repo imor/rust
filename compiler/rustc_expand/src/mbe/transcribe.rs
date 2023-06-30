@@ -83,9 +83,10 @@ pub(super) fn transcribe<'a>(
     src_span: DelimSpan,
     transparency: Transparency,
 ) -> PResult<'a, TokenStream> {
-    debug!("Inside transcribe::transcribe");
+    debug!("Inside transcribe::transcribe, RHS: {src:?}");
     // Nothing for us to transcribe...
     if src.tts.is_empty() {
+        debug!("transcribe::transcribe empty RHS, returning.");
         return Ok(TokenStream::default());
     }
 
@@ -117,17 +118,21 @@ pub(super) fn transcribe<'a>(
         // Look at the last frame on the stack.
         // If it still has a TokenTree we have not looked at yet, use that tree.
         let Some(tree) = stack.last_mut().unwrap().next() else {
+            debug!("no tree in last frame");
             // This else-case never produces a value for `tree` (it `continue`s or `return`s).
 
             // Otherwise, if we have just reached the end of a sequence and we can keep repeating,
             // go back to the beginning of the sequence.
             if let Frame::Sequence { idx, sep, .. } = stack.last_mut().unwrap() {
                 let (repeat_idx, repeat_len) = repeats.last_mut().unwrap();
+                debug!("last frame is a sequence. repeat_idx: {repeat_idx}, repeat_len: {repeat_len}");
                 *repeat_idx += 1;
                 if repeat_idx < repeat_len {
                     *idx = 0;
                     if let Some(sep) = sep {
-                        result.push(TokenTree::Token(sep.clone(), Spacing::Alone));
+                        let tt = TokenTree::Token(sep.clone(), Spacing::Alone);
+                        debug!("push sep token to result: {tt:?}");
+                        result.push(tt);
                     }
                     continue;
                 }
@@ -139,6 +144,7 @@ pub(super) fn transcribe<'a>(
             match stack.pop().unwrap() {
                 // Done with a sequence. Pop from repeats.
                 Frame::Sequence { .. } => {
+                    debug!("top frame is a sequence, popping from repeats");
                     repeats.pop();
                 }
 
@@ -146,14 +152,18 @@ pub(super) fn transcribe<'a>(
                 // done. Otherwise, we unwind the result_stack to append what we have produced to
                 // any previous results.
                 Frame::Delimited { delim, span, .. } => {
+                    debug!("top frame is a delimited");
                     if result_stack.is_empty() {
+                        let result = TokenStream::new(result);
+                        debug!("result_stack empty, returning {result:?}");
                         // No results left to compute! We are back at the top-level.
-                        return Ok(TokenStream::new(result));
+                        return Ok(result);
                     }
 
                     // Step back into the parent Delimited.
                     let tree = TokenTree::Delimited(span, delim, TokenStream::new(result));
                     result = result_stack.pop().unwrap();
+                    debug!("result_stack not empty, pushing {tree:?} to last item in result_stack");
                     result.push(tree);
                 }
             }
@@ -167,6 +177,7 @@ pub(super) fn transcribe<'a>(
             // and the matches in `interp` have the same shape. Otherwise, either the caller or the
             // macro writer has made a mistake.
             seq @ mbe::TokenTree::Sequence(_, delimited) => {
+                debug!("tree is a sequence, tree: {tree:?}");
                 match lockstep_iter_size(&seq, interp, &repeats) {
                     LockstepIterSize::Unconstrained => {
                         return Err(cx.create_err(NoSyntaxVarsExprRepeat { span: seq.span() }));
@@ -215,6 +226,7 @@ pub(super) fn transcribe<'a>(
 
             // Replace the meta-var with the matched token tree from the invocation.
             mbe::TokenTree::MetaVar(mut sp, mut original_ident) => {
+                debug!("tree is a meta-var, tree: {tree:?}");
                 // Find the matched nonterminal from the macro invocation, and use it to replace
                 // the meta-var.
                 let ident = MacroRulesNormalizedIdent::new(original_ident);
@@ -254,6 +266,7 @@ pub(super) fn transcribe<'a>(
 
             // Replace meta-variable expressions with the result of their expansion.
             mbe::TokenTree::MetaVarExpr(sp, expr) => {
+                debug!("tree is a meta-var expr, tree: {tree:?}");
                 transcribe_metavar_expr(cx, expr, interp, &mut marker, &repeats, &mut result, &sp)?;
             }
 
@@ -263,6 +276,7 @@ pub(super) fn transcribe<'a>(
             // jump back out of the Delimited, pop the result_stack and add the new results back to
             // the previous results (from outside the Delimited).
             mbe::TokenTree::Delimited(mut span, delimited) => {
+                debug!("tree is a delimited, tree: {tree:?}");
                 mut_visit::visit_delim_span(&mut span, &mut marker);
                 stack.push(Frame::Delimited {
                     tts: &delimited.tts,
@@ -276,6 +290,7 @@ pub(super) fn transcribe<'a>(
             // Nothing much to do here. Just push the token to the result, being careful to
             // preserve syntax context.
             mbe::TokenTree::Token(token) => {
+                debug!("tree is a token, tree: {tree:?}");
                 let mut token = token.clone();
                 mut_visit::visit_token(&mut token, &mut marker);
                 let tt = TokenTree::Token(token, Spacing::Alone);
