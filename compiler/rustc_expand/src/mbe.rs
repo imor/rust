@@ -63,6 +63,16 @@ pub(crate) enum KleeneOp {
     ZeroOrOne,
 }
 
+impl KleeneOp {
+    fn can_repeat_more_than_once(&self) -> bool {
+        matches!(self, KleeneOp::ZeroOrMore | KleeneOp::OneOrMore)
+    }
+
+    fn can_repeat_zero_times(&self) -> bool {
+        matches!(self, KleeneOp::ZeroOrMore | KleeneOp::ZeroOrOne)
+    }
+}
+
 impl Display for KleeneOp {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
