@@ -101,9 +101,7 @@ use std::rc::Rc;
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum MatcherLoc {
     /// A raw token like abc, ; or =>
-    Token {
-        token: Token,
-    },
+    Token { token: Token },
     /// A delimited sequence like (abc)
     Delimited,
     /// A repetition sequence
@@ -115,18 +113,11 @@ pub(crate) enum MatcherLoc {
         seq_depth: usize,
     },
     /// A kleene operator after a repetition sequence without a separator before it
-    SequenceKleeneOpNoSep {
-        op: KleeneOp,
-        idx_first: usize,
-    },
+    SequenceKleeneOpNoSep { op: KleeneOp, idx_first: usize },
     /// A separator after a repetition sequence
-    SequenceSep {
-        separator: Token,
-    },
+    SequenceSep { separator: Token },
     /// A kleene operator after a repetition sequence with a separator before it
-    SequenceKleeneOpAfterSep {
-        idx_first: usize,
-    },
+    SequenceKleeneOpAfterSep { idx_first: usize },
     /// A meta-variable declaration. For example $e:expr
     MetaVarDecl {
         span: Span,
@@ -200,7 +191,9 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
                     locs.push(MatcherLoc::Delimited);
                     locs.push(MatcherLoc::Token { token: open_token });
                     let tts = &delimited.tts;
-                    debug!("Inside compute_locs::TokenTree::Delimited calling inner with tts {tts:?}");
+                    debug!(
+                        "Inside compute_locs::TokenTree::Delimited calling inner with tts {tts:?}"
+                    );
                     inner(&delimited.tts, locs, next_metavar, seq_depth);
                     locs.push(MatcherLoc::Token { token: close_token });
                 }
@@ -217,7 +210,9 @@ pub(super) fn compute_locs(matcher: &[TokenTree]) -> Vec<MatcherLoc> {
                     let idx_first = locs.len();
                     let idx_seq = idx_first - 1;
                     let tts = &seq.tts;
-                    debug!("Inside compute_locs::TokenTree::Sequence calling inner with tts {tts:?}");
+                    debug!(
+                        "Inside compute_locs::TokenTree::Sequence calling inner with tts {tts:?}"
+                    );
                     inner(&seq.tts, locs, next_metavar, seq_depth + 1);
 
                     if let Some(separator) = &seq.separator {
@@ -529,10 +524,8 @@ impl TtParser {
 
                     if matches!(op, KleeneOp::ZeroOrMore | KleeneOp::ZeroOrOne) {
                         // Try zero matches of this sequence, by skipping over it.
-                        let mp = MatchCursor {
-                            idx: idx_first_after,
-                            matches: Rc::clone(&mp.matches),
-                        };
+                        let mp =
+                            MatchCursor { idx: idx_first_after, matches: Rc::clone(&mp.matches) };
                         debug!("MatcherLoc::Sequence cur_mps.push({mp:?}).");
                         self.cur_matcher_positions.push(mp);
                     }
@@ -636,12 +629,16 @@ impl TtParser {
                     Failure(T::build_failure(
                         Token::new(
                             token::Eof,
-                            if token.span.is_dummy() { token.span } else { token.span.shrink_to_hi() },
+                            if token.span.is_dummy() {
+                                token.span
+                            } else {
+                                token.span.shrink_to_hi()
+                            },
                         ),
                         approx_position,
                         "missing tokens in macro arguments",
                     ))
-                },
+                }
             })
         } else {
             None
@@ -662,7 +659,8 @@ impl TtParser {
         // possible next positions into `next_mps`. After some post-processing, the contents of
         // `next_mps` replenish `cur_mps` and we start over again.
         self.cur_matcher_positions.clear();
-        self.cur_matcher_positions.push(MatchCursor { idx: 0, matches: self.empty_matches.clone() });
+        self.cur_matcher_positions
+            .push(MatchCursor { idx: 0, matches: self.empty_matches.clone() });
 
         loop {
             self.next_mps.clear();
@@ -776,23 +774,28 @@ impl TtParser {
         let next_mps = &self.next_mps;
         debug!("ambiguity_error: nts: {nts:?} for macro: {macro_name:?}. next_mps: {next_mps:?}");
 
-        let mps = self.next_mps.iter().map(|mp| match &matcher[mp.idx] {
-            MatcherLoc::Sequence { idx_first_after, .. } => {
-                let m = &matcher[*idx_first_after];
-                format!("{m}")
-            }
-            MatcherLoc::SequenceKleeneOpAfterSep { idx_first, .. } => {
-                let m = &matcher[*idx_first];
-                format!("{m}")
-            }
-            MatcherLoc::SequenceKleeneOpNoSep { idx_first, op } => {
-                let m = &matcher[*idx_first];
-                format!("{m} in sequence ending with {op}")
-            }
-            m => {
-                format!("{m}")
-            }
-        }).collect::<Vec<String>>().join(" or ");
+        let mps = self
+            .next_mps
+            .iter()
+            .map(|mp| match &matcher[mp.idx] {
+                MatcherLoc::Sequence { idx_first_after, .. } => {
+                    let m = &matcher[*idx_first_after];
+                    format!("{m}")
+                }
+                MatcherLoc::SequenceKleeneOpAfterSep { idx_first, .. } => {
+                    let m = &matcher[*idx_first];
+                    format!("{m}")
+                }
+                MatcherLoc::SequenceKleeneOpNoSep { idx_first, op } => {
+                    let m = &matcher[*idx_first];
+                    format!("{m} in sequence ending with {op}")
+                }
+                m => {
+                    format!("{m}")
+                }
+            })
+            .collect::<Vec<String>>()
+            .join(" or ");
 
         Error(
             token_span,
@@ -807,7 +810,7 @@ impl TtParser {
         )
     }
 
-    fn nameize<I: Iterator<Item =MetaVarMatch>, F>(
+    fn nameize<I: Iterator<Item = MetaVarMatch>, F>(
         &self,
         matcher: &[MatcherLoc],
         mut res: I,

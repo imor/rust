@@ -11,12 +11,12 @@ pub(crate) mod metavar_expr;
 pub(crate) mod quoted;
 pub(crate) mod transcribe;
 
-use std::fmt::{Display, Formatter};
 use metavar_expr::MetaVarExpr;
 use rustc_ast::token::{Delimiter, NonterminalKind, Token, TokenKind};
 use rustc_ast::tokenstream::DelimSpan;
 use rustc_span::symbol::Ident;
 use rustc_span::Span;
+use std::fmt::{Display, Formatter};
 
 /// Contains the sub-token-trees of a "delimited" token tree such as `(a b c)`.
 /// The delimiters are not represented explicitly in the `tts` vector.

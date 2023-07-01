@@ -65,7 +65,9 @@ pub(super) fn parse(
                                 Some((frag, _)) => {
                                     let span = token.span.with_lo(start_sp.lo());
 
-                                    debug!("Inside quoted::parse. parsing meta_var fragment specifier.");
+                                    debug!(
+                                        "Inside quoted::parse. parsing meta_var fragment specifier."
+                                    );
                                     let kind =
                                         token::NonterminalKind::from_symbol(frag.name, || {
                                             // FIXME(#85708) - once we properly decode a foreign
@@ -182,7 +184,9 @@ fn parse_tree(
                     } else {
                         match delim {
                             Delimiter::Brace => {
-                                debug!("quoted::parse_tree. delimiter is a brace. Parsing a meta-variable expression");
+                                debug!(
+                                    "quoted::parse_tree. delimiter is a brace. Parsing a meta-variable expression"
+                                );
                                 // The delimiter is `{`. This indicates the beginning
                                 // of a meta-variable expression (e.g. `${count(ident)}`).
                                 // Try to parse the meta-variable expression.
@@ -207,7 +211,9 @@ fn parse_tree(
                                 debug!("quoted::parse_tree. delimiter is a parenthesis");
                             }
                             d => {
-                                debug!("quoted::parse_tree. delimiter is something other than a brace or a parenthesis: {d:?}");
+                                debug!(
+                                    "quoted::parse_tree. delimiter is something other than a brace or a parenthesis: {d:?}"
+                                );
                                 let tok = pprust::token_kind_to_string(&token::OpenDelim(delim));
                                 let msg = format!("expected `(` or `{{`, found `{}`", tok);
                                 sess.span_diagnostic.span_err(delim_span.entire(), msg);
@@ -279,7 +285,7 @@ fn parse_tree(
         tokenstream::TokenTree::Token(token, _) => {
             debug!("quoted::parse_tree. tree is a arbitrary token");
             TokenTree::Token(token)
-        },
+        }
 
         // `tree` is the beginning of a delimited set of tokens (e.g., `(` or `{`). We need to
         // descend into the delimited set and further parse it.
@@ -292,7 +298,7 @@ fn parse_tree(
                     tts: parse(tts, parsing_patterns, sess, node_id, features, edition),
                 },
             )
-        },
+        }
     };
     debug!("Inside quoted::parse_tree. Returning {result:?}");
     result
@@ -350,14 +356,16 @@ fn parse_sep_and_kleene_op(
         // #1 is a `?`, `+`, or `*` KleeneOp
         Ok(Ok((op, span))) => {
             debug!("parse_sep_with_kleene_op:: returning no separator with op {op:?}");
-            return (None, KleeneToken::new(op, span))
-        },
+            return (None, KleeneToken::new(op, span));
+        }
 
         // #1 is a separator followed by #2, a KleeneOp
         Ok(Err(token)) => match parse_kleene_op(input, token.span) {
             // #2 is the `?` Kleene op, which does not take a separator (error)
             Ok(Ok((KleeneOp::ZeroOrOne, span))) => {
-                debug!("parse_sep_with_kleene_op:: error: the ? macro repetition operator does not take a separator");
+                debug!(
+                    "parse_sep_with_kleene_op:: error: the ? macro repetition operator does not take a separator"
+                );
                 // Error!
                 sess.span_diagnostic.span_err(
                     token.span,
@@ -371,14 +379,14 @@ fn parse_sep_and_kleene_op(
             // #2 is a KleeneOp :D
             Ok(Ok((op, span))) => {
                 debug!("parse_sep_with_kleene_op:: returning separator {token:?} with op {op:?}");
-                return (Some(token), KleeneToken::new(op, span))
-            },
+                return (Some(token), KleeneToken::new(op, span));
+            }
 
             // #2 is a random token or not a token at all :(
             Ok(Err(Token { span, .. })) | Err(span) => {
                 debug!("parse_sep_with_kleene_op:: no valid kleene operator");
                 span
-            },
+            }
         },
 
         // #1 is not a token
