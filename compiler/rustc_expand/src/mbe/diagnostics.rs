@@ -32,7 +32,7 @@ pub(super) fn failed_to_match_macro<'cx>(
     let try_success_result = try_match_macro(sess, name, &arg, lhses, &mut tracker);
 
     if try_success_result.is_ok() {
-        // Nonterminal parser recovery might turn failed matches into successful ones,
+        // Non-terminal parser recovery might turn failed matches into successful ones,
         // but for that it must have emitted an error already
         tracker.cx.sess.delay_span_bug(sp, "Macro matching returned a success on the second try");
     }
@@ -66,7 +66,7 @@ pub(super) fn failed_to_match_macro<'cx>(
         && (matches!(expected_token.kind, TokenKind::Interpolated(_))
             || matches!(token.kind, TokenKind::Interpolated(_)))
     {
-        err.note("captured metavariables except for `:tt`, `:ident` and `:lifetime` cannot be compared to other tokens");
+        err.note("captured meta-variables except for `:tt`, `:ident` and `:lifetime` cannot be compared to other tokens");
         err.note("see <https://doc.rust-lang.org/nightly/reference/macros-by-example.html#forwarding-a-matched-fragment> for more information");
 
         if !def_span.is_dummy() && !cx.source_map().is_imported(def_span) {
@@ -80,7 +80,7 @@ pub(super) fn failed_to_match_macro<'cx>(
             let parser = parser_from_cx(sess, arg.clone(), Recovery::Allowed);
             let mut tt_parser = TtParser::new(name);
 
-            if let Success(_) =
+            if let ArmMatchSucceeded(_) =
                 tt_parser.parse_tt(&mut Cow::Borrowed(&parser), lhs, &mut NoopTracker)
             {
                 if comma_span.is_dummy() {
@@ -141,7 +141,7 @@ impl<'a, 'cx, 'matcher> Tracker<'matcher> for CollectTrackerAndEmitter<'a, 'cx, 
 
     fn after_arm(&mut self, result: &NamedParseResult<Self::Failure>) {
         match result {
-            Success(_) => {
+            ArmMatchSucceeded(_) => {
                 // Nonterminal parser recovery might turn failed matches into successful ones,
                 // but for that it must have emitted an error already
                 self.cx.sess.delay_span_bug(
@@ -149,7 +149,7 @@ impl<'a, 'cx, 'matcher> Tracker<'matcher> for CollectTrackerAndEmitter<'a, 'cx, 
                     "should not collect detailed info for successful macro match",
                 );
             }
-            Failure((token, approx_position, msg)) => {
+            RetryNextArmBecauseArmMatchFailed((token, approx_position, msg)) => {
                 debug!(?token, ?msg, "a new failure of an arm");
 
                 if self
@@ -168,12 +168,14 @@ impl<'a, 'cx, 'matcher> Tracker<'matcher> for CollectTrackerAndEmitter<'a, 'cx, 
                     })
                 }
             }
-            Error(err_sp, msg) => {
+            AbortBecauseFatalError(err_sp, msg) => {
                 let span = err_sp.substitute_dummy(self.root_span);
                 self.cx.struct_span_err(span, msg.clone()).emit();
                 self.result = Some(DummyResult::any(span));
             }
-            ErrorReported(_) => self.result = Some(DummyResult::any(self.root_span)),
+            AbortBecauseErrorAlreadyReported(_) => {
+                self.result = Some(DummyResult::any(self.root_span))
+            }
         }
     }
 

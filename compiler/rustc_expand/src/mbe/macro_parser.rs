@@ -320,14 +320,15 @@ enum EofMatchCursors {
 /// Represents the possible results of an attempted parse.
 pub(crate) enum ParseResult<T, F> {
     /// Parsed successfully.
-    Success(T),
-    /// Arm failed to match. If the second parameter is `token::Eof`, it indicates an unexpected
-    /// end of macro invocation. Otherwise, it indicates that no rules expected the given token.
-    /// The usize is the approximate position of the token in the input token stream.
-    Failure(F),
+    ArmMatchSucceeded(T),
+    /// Created when an arm fails to match. There are two ways this can happen: either there
+    /// were more matcher locations than the input token tree or there were more tokens in
+    /// the token tree than the the matcher locations. The first case indicates the invocation
+    /// ended unexpectedly and the second indicates that no match arms expected the extra tokens.
+    RetryNextArmBecauseArmMatchFailed(F),
     /// Fatal error (malformed macro?). Abort compilation.
-    Error(rustc_span::Span, String),
-    ErrorReported(ErrorGuaranteed),
+    AbortBecauseFatalError(rustc_span::Span, String),
+    AbortBecauseErrorAlreadyReported(ErrorGuaranteed),
 }
 
 /// A `ParseResult` where the `Success` variant contains a mapping of
@@ -429,14 +430,14 @@ pub struct TtParser {
 
     /// The set of current matcher positions to be processed. This should be empty by the end of a successful
     /// execution of `parse_tt_inner`.
-    cur_matcher_positions: Vec<MatchCursor>,
+    cur_match_cursors: Vec<MatchCursor>,
 
     /// The set of newly generated matcher positions. These are used to replenish `cur_matcher_positions` in the function
     /// `parse_tt`.
-    next_mps: Vec<MatchCursor>,
+    next_match_cursors: Vec<MatchCursor>,
 
     /// The set of mps that are waiting for the black-box parser.
-    black_box_matcher_positions: Vec<MatchCursor>,
+    black_box_match_cursors: Vec<MatchCursor>,
 
     /// Pre-allocate an empty match array, so it can be cloned cheaply for macros with many rules
     /// that have no metavars.
@@ -447,15 +448,15 @@ impl TtParser {
     pub(super) fn new(macro_name: Ident) -> TtParser {
         TtParser {
             macro_name,
-            cur_matcher_positions: vec![],
-            next_mps: vec![],
-            black_box_matcher_positions: vec![],
+            cur_match_cursors: vec![],
+            next_match_cursors: vec![],
+            black_box_match_cursors: vec![],
             empty_matches: Rc::new(vec![]),
         }
     }
 
     pub(super) fn has_no_remaining_items_for_step(&self) -> bool {
-        self.cur_matcher_positions.is_empty()
+        self.cur_match_cursors.is_empty()
     }
 
     /// Process the matcher positions of `cur_matcher_positions` until it is empty. In the process, this will
@@ -477,7 +478,7 @@ impl TtParser {
         // modified if `token == Eof`.
         let mut eof_mps = EofMatchCursors::None;
 
-        while let Some(mut mp) = self.cur_matcher_positions.pop() {
+        while let Some(mut mp) = self.cur_match_cursors.pop() {
             let matcher_loc = &matcher[mp.idx];
             debug!("current matcher pos: {mp:?}. matcher_loc: {matcher_loc:?}");
             track.before_match_loc(self, matcher_loc);
@@ -495,20 +496,20 @@ impl TtParser {
                     // another mp in `cur_mps` will match.
                     if matches!(t, Token { kind: DocComment(..), .. }) {
                         mp.idx += 1;
-                        debug!("MatcherLoc::Token skipping doc comment token.");
-                        debug!("MatcherLoc::Token cur_mps.push({mp:?}).");
-                        self.cur_matcher_positions.push(mp);
+                        debug!("parse_tt_inner: MatcherLoc::Token skipping doc comment token.");
+                        debug!("parse_tt_inner: MatcherLoc::Token cur_mps.push({mp:?}).");
+                        self.cur_match_cursors.push(mp);
                     } else if token_name_eq(&t, token) {
                         mp.idx += 1;
-                        debug!("MatcherLoc::Token next_mps.push({mp:?}).");
-                        self.next_mps.push(mp);
+                        debug!("parse_tt_inner: MatcherLoc::Token next_mps.push({mp:?}).");
+                        self.next_match_cursors.push(mp);
                     }
                 }
                 MatcherLoc::Delimited => {
                     // Entering the delimiter is trivial.
                     mp.idx += 1;
-                    debug!("MatcherLoc::Delimited cur_mps.push({mp:?}).");
-                    self.cur_matcher_positions.push(mp);
+                    debug!("parse_tt_inner: MatcherLoc::Delimited cur_mps.push({mp:?}).");
+                    self.cur_match_cursors.push(mp);
                 }
                 &MatcherLoc::Sequence {
                     op,
@@ -526,14 +527,14 @@ impl TtParser {
                         // Try zero matches of this sequence, by skipping over it.
                         let mp =
                             MatchCursor { idx: idx_first_after, matches: Rc::clone(&mp.matches) };
-                        debug!("MatcherLoc::Sequence cur_mps.push({mp:?}).");
-                        self.cur_matcher_positions.push(mp);
+                        debug!("parse_tt_inner: MatcherLoc::Sequence cur_mps.push({mp:?}).");
+                        self.cur_match_cursors.push(mp);
                     }
 
                     // Try one or more matches of this sequence, by entering it.
                     mp.idx += 1;
-                    debug!("MatcherLoc::Sequence cur_mps.push({mp:?}).");
-                    self.cur_matcher_positions.push(mp);
+                    debug!("parse_tt_inner: MatcherLoc::Sequence cur_mps.push({mp:?}).");
+                    self.cur_match_cursors.push(mp);
                 }
                 &MatcherLoc::SequenceKleeneOpNoSep { op, idx_first } => {
                     // We are past the end of a sequence with no separator. Try ending the
@@ -543,14 +544,18 @@ impl TtParser {
                         idx: mp.idx + 1, // +1 skips the Kleene op
                         matches: Rc::clone(&mp.matches),
                     };
-                    debug!("MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({ending_mp:?}).");
-                    self.cur_matcher_positions.push(ending_mp);
+                    debug!(
+                        "parse_tt_inner: MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({ending_mp:?})."
+                    );
+                    self.cur_match_cursors.push(ending_mp);
 
                     if op != KleeneOp::ZeroOrOne {
                         // Try another repetition.
                         mp.idx = idx_first;
-                        debug!("MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({mp:?}).");
-                        self.cur_matcher_positions.push(mp);
+                        debug!(
+                            "parse_tt_inner: MatcherLoc::SequenceKleeneOpNoSep cur_mps.push({mp:?})."
+                        );
+                        self.cur_match_cursors.push(mp);
                     }
                 }
                 MatcherLoc::SequenceSep { separator } => {
@@ -561,22 +566,24 @@ impl TtParser {
                         idx: mp.idx + 2, // +2 skips the separator and the Kleene op
                         matches: Rc::clone(&mp.matches),
                     };
-                    debug!("MatcherLoc::SequenceSep cur_mps.push({ending_mp:?}).");
-                    self.cur_matcher_positions.push(ending_mp);
+                    debug!("parse_tt_inner: MatcherLoc::SequenceSep cur_mps.push({ending_mp:?}).");
+                    self.cur_match_cursors.push(ending_mp);
 
                     if token_name_eq(token, separator) {
                         // The separator matches the current token. Advance past it.
                         mp.idx += 1;
-                        debug!("MatcherLoc::SequenceSep next_mps.push({mp:?}).");
-                        self.next_mps.push(mp);
+                        debug!("parse_tt_inner: MatcherLoc::SequenceSep next_mps.push({mp:?}).");
+                        self.next_match_cursors.push(mp);
                     }
                 }
                 &MatcherLoc::SequenceKleeneOpAfterSep { idx_first } => {
                     // We are past the sequence separator. This can't be a `?` Kleene op, because
                     // they don't permit separators. Try another repetition.
                     mp.idx = idx_first;
-                    debug!("MatcherLoc::SequenceKleeneOpAfterSep cur_mps.push({mp:?}).");
-                    self.cur_matcher_positions.push(mp);
+                    debug!(
+                        "parse_tt_inner: MatcherLoc::SequenceKleeneOpAfterSep cur_mps.push({mp:?})."
+                    );
+                    self.cur_match_cursors.push(mp);
                 }
                 &MatcherLoc::MetaVarDecl { span, kind, .. } => {
                     // Built-in nonterminals never start with these tokens, so we can eliminate
@@ -584,14 +591,19 @@ impl TtParser {
                     // to determine any edition-specific matching behavior for non-terminals.
                     if let Some(kind) = kind {
                         if Parser::nonterminal_may_begin_with(kind, token) {
-                            debug!("MatcherLoc::MetaVarDecl bb_mps.push({mp:?}).");
-                            self.black_box_matcher_positions.push(mp);
+                            debug!("parse_tt_inner: MatcherLoc::MetaVarDecl bb_mps.push({mp:?}).");
+                            self.black_box_match_cursors.push(mp);
                         }
                     } else {
                         // E.g. `$e` instead of `$e:expr`, reported as a hard error if actually used.
                         // Both this check and the one in `nameize` are necessary, surprisingly.
-                        debug!("MatcherLoc::MetaVarDecl error: missing fragment specifier");
-                        return Some(Error(span, "missing fragment specifier".to_string()));
+                        debug!(
+                            "parse_tt_inner: MatcherLoc::MetaVarDecl error: missing fragment specifier"
+                        );
+                        return Some(AbortBecauseFatalError(
+                            span,
+                            "missing fragment specifier".to_string(),
+                        ));
                     }
                 }
                 MatcherLoc::Eof => {
@@ -604,7 +616,7 @@ impl TtParser {
                                 EofMatchCursors::Multiple
                             }
                         };
-                        debug!("eof_mps: {eof_mps:?}.");
+                        debug!("parse_tt_inner: eof_mps: {eof_mps:?}.");
                     }
                 }
             }
@@ -621,12 +633,19 @@ impl TtParser {
                     self.nameize(matcher, matches)
                 }
                 EofMatchCursors::Multiple => {
-                    debug!("MatcherLoc::MetaVarDecl error: ambiguity: multiple successful parses");
-                    Error(token.span, "ambiguity: multiple successful parses".to_string())
+                    debug!(
+                        "parse_tt_inner: MatcherLoc::MetaVarDecl error: ambiguity: multiple successful parses"
+                    );
+                    AbortBecauseFatalError(
+                        token.span,
+                        "ambiguity: multiple successful parses".to_string(),
+                    )
                 }
                 EofMatchCursors::None => {
-                    debug!("MatcherLoc::MetaVarDecl error: missing tokens in macro arguments");
-                    Failure(T::build_failure(
+                    debug!(
+                        "parse_tt_inner: MatcherLoc::MetaVarDecl error: missing tokens in macro arguments"
+                    );
+                    RetryNextArmBecauseArmMatchFailed(T::build_failure(
                         Token::new(
                             token::Eof,
                             if token.span.is_dummy() {
@@ -646,6 +665,9 @@ impl TtParser {
     }
 
     /// Match the token stream from `parser` against `matcher`.
+    /// Arguments:
+    /// - `parser` is the main rust grammar parser which helps in parsing non-terminals like expr, stmt etc.
+    /// - `matcher` is the matcher we are trying to match against
     pub(super) fn parse_tt<'matcher, T: Tracker<'matcher>>(
         &mut self,
         parser: &mut Cow<'_, Parser<'_>>,
@@ -658,15 +680,14 @@ impl TtParser {
         // `parse_tt_inner` then processes all of these possible matcher positions and produces
         // possible next positions into `next_mps`. After some post-processing, the contents of
         // `next_mps` replenish `cur_mps` and we start over again.
-        self.cur_matcher_positions.clear();
-        self.cur_matcher_positions
-            .push(MatchCursor { idx: 0, matches: self.empty_matches.clone() });
+        self.cur_match_cursors.clear();
+        self.cur_match_cursors.push(MatchCursor { idx: 0, matches: self.empty_matches.clone() });
 
         loop {
-            self.next_mps.clear();
-            self.black_box_matcher_positions.clear();
+            self.next_match_cursors.clear();
+            self.black_box_match_cursors.clear();
 
-            // Process `cur_mps` until either we have finished the input or we need to get some
+            // Process `cur_matcher_positions` until either we have finished the input or we need to get some
             // parsing from the black-box parser done.
             let res = self.parse_tt_inner(
                 matcher,
@@ -679,15 +700,19 @@ impl TtParser {
             }
 
             // `parse_tt_inner` handled all of `cur_mps`, so it's empty.
-            assert!(self.cur_matcher_positions.is_empty());
+            assert!(self.cur_match_cursors.is_empty());
 
             // Error messages here could be improved with links to original rules.
-            match (self.next_mps.len(), self.black_box_matcher_positions.len()) {
+            match (self.next_match_cursors.len(), self.black_box_match_cursors.len()) {
                 (0, 0) => {
                     // There are no possible next positions AND we aren't waiting for the black-box
-                    // parser: syntax error.
+                    // parser. This means this arm can't match either because no more matcher locs
+                    // are left or because the next token did not match. E.g. if the arm is
+                    // (a b) => {} and the invocation is m!(a b c) then c token is not expected.
+                    // Another example is if arm is (a b d) and the invocation is m!(a b c) then
+                    // again the c token is not expected.
                     debug!("parse_tt: error: no rules expected this token in macro call");
-                    return Failure(T::build_failure(
+                    return RetryNextArmBecauseArmMatchFailed(T::build_failure(
                         parser.token.clone(),
                         parser.approx_token_stream_pos(),
                         "no rules expected this token in macro call",
@@ -695,17 +720,19 @@ impl TtParser {
                 }
 
                 (_, 0) => {
-                    // Dump all possible `next_mps` into `cur_mps` for the next iteration. Then
-                    // process the next token.
+                    // There are non-zero next_match_cursors. Dump them into the cur_match_cursors
+                    // and reprocess
                     debug!("parse_tt: some next_mps but no bb_mps. Continuing next loop iteration");
-                    self.cur_matcher_positions.append(&mut self.next_mps);
+                    self.cur_match_cursors.append(&mut self.next_match_cursors);
+                    // Why bump here?
                     parser.to_mut().bump();
                 }
 
                 (0, 1) => {
-                    // We need to call the black-box parser to get some nonterminal.
-                    let mut mp = self.black_box_matcher_positions.pop().unwrap();
-                    let loc = &matcher[mp.idx];
+                    // There are zero next_match_cursors but exactly one black box cursor.
+                    // This means we need to call the black-box parser to get some non-terminal.
+                    let mut match_cursor = self.black_box_match_cursors.pop().unwrap();
+                    let loc = &matcher[match_cursor.idx];
                     if let &MatcherLoc::MetaVarDecl {
                         span,
                         kind: Some(kind),
@@ -714,7 +741,7 @@ impl TtParser {
                         ..
                     } = loc
                     {
-                        // We use the span of the metavariable declaration to determine any
+                        // We use the span of the meta-variable declaration to determine any
                         // edition-specific matching behavior for non-terminals.
                         let nt = match parser.to_mut().parse_nonterminal(kind) {
                             Err(mut err) => {
@@ -725,22 +752,24 @@ impl TtParser {
                                     ),
                                 )
                                 .emit();
-                                return ErrorReported(guarantee);
+                                // If no non-terminal could be found it doesn't only terminate
+                                // matching for this arm but for all arms!
+                                return AbortBecauseErrorAlreadyReported(guarantee);
                             }
                             Ok(nt) => nt,
                         };
-                        debug!("parse_tt: parse_nonterminal result: {nt:?})");
+                        debug!("parse_tt: parse_non-terminal result: {nt:?})");
                         let m = match nt {
                             NtOrTt::Nt(nt) => MatchedNonterminal(Lrc::new(nt)),
                             NtOrTt::Tt(tt) => MatchedTokenTree(tt),
                         };
-                        mp.push_match(next_metavar, seq_depth, m);
-                        mp.idx += 1;
+                        match_cursor.push_match(next_metavar, seq_depth, m);
+                        match_cursor.idx += 1;
                     } else {
                         unreachable!()
                     }
-                    debug!("parse_tt: cur_mps.push({mp:?})");
-                    self.cur_matcher_positions.push(mp);
+                    debug!("parse_tt: cur_mps.push({match_cursor:?})");
+                    self.cur_match_cursors.push(match_cursor);
                 }
 
                 (_, _) => {
@@ -749,7 +778,7 @@ impl TtParser {
                 }
             }
 
-            assert!(!self.cur_matcher_positions.is_empty());
+            assert!(!self.cur_match_cursors.is_empty());
         }
     }
 
@@ -760,7 +789,7 @@ impl TtParser {
     ) -> NamedParseResult<F> {
         debug!("inside ambiguity_error");
         let nts = self
-            .black_box_matcher_positions
+            .black_box_match_cursors
             .iter()
             .map(|mp| match &matcher[mp.idx] {
                 MatcherLoc::MetaVarDecl { bind, kind: Some(kind), .. } => {
@@ -771,11 +800,11 @@ impl TtParser {
             .collect::<Vec<String>>()
             .join(" or ");
         let macro_name = &self.macro_name;
-        let next_mps = &self.next_mps;
+        let next_mps = &self.next_match_cursors;
         debug!("ambiguity_error: nts: {nts:?} for macro: {macro_name:?}. next_mps: {next_mps:?}");
 
         let mps = self
-            .next_mps
+            .next_match_cursors
             .iter()
             .map(|mp| match &matcher[mp.idx] {
                 MatcherLoc::Sequence { idx_first_after, .. } => {
@@ -797,12 +826,12 @@ impl TtParser {
             .collect::<Vec<String>>()
             .join(" or ");
 
-        Error(
+        AbortBecauseFatalError(
             token_span,
             format!(
                 "ambiguity when calling macro `{}`: {}",
                 self.macro_name,
-                match self.next_mps.len() {
+                match self.next_match_cursors.len() {
                     0 => format!("token can either match {nts}."),
                     _ => format!("token can either match {nts} or {mps}"),
                 }
@@ -825,17 +854,20 @@ impl TtParser {
                     match ret_val.entry(MacroRulesNormalizedIdent::new(bind)) {
                         Vacant(spot) => spot.insert(res.next().unwrap()),
                         Occupied(..) => {
-                            return Error(span, format!("duplicated bind name: {}", bind));
+                            return AbortBecauseFatalError(
+                                span,
+                                format!("duplicated bind name: {}", bind),
+                            );
                         }
                     };
                 } else {
                     debug!("nameize: missing fragment specifier for bind {bind}");
                     // E.g. `$e` instead of `$e:expr`, reported as a hard error if actually used.
                     // Both this check and the one in `parse_tt_inner` are necessary, surprisingly.
-                    return Error(span, "missing fragment specifier".to_string());
+                    return AbortBecauseFatalError(span, "missing fragment specifier".to_string());
                 }
             }
         }
-        Success(ret_val)
+        ArmMatchSucceeded(ret_val)
     }
 }

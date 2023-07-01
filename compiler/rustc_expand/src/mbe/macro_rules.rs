@@ -4,7 +4,10 @@ use crate::expand::{ensure_complete_parse, parse_ast_fragment, AstFragment, AstF
 use crate::mbe;
 use crate::mbe::diagnostics::{annotate_doc_comment, parse_failure_msg};
 use crate::mbe::macro_check;
-use crate::mbe::macro_parser::{Error, ErrorReported, Failure, Success, TtParser};
+use crate::mbe::macro_parser::{
+    AbortBecauseErrorAlreadyReported, AbortBecauseFatalError, ArmMatchSucceeded,
+    RetryNextArmBecauseArmMatchFailed, TtParser,
+};
 use crate::mbe::macro_parser::{MatchedSeq, MatchedTokenTree, MatcherLoc};
 use crate::mbe::transcribe::transcribe;
 
@@ -143,8 +146,10 @@ pub(super) trait Tracker<'matcher> {
     /// The contents of `ParseResult::Failure`.
     type Failure;
 
-    /// Arm failed to match. If the token is `token::Eof`, it indicates an unexpected
-    /// end of macro invocation. Otherwise, it indicates that no rules expected the given token.
+    /// Created when an arm fails to match. There are two ways this can happen: either there
+    /// were more matcher locations than the input token tree or there were more tokens in
+    /// the token tree than the the matcher locations. The first case indicates the invocation
+    /// ended unexpectedly and the second indicates that no match arms expected the extra tokens.
     /// The usize is the approximate position of the token in the input token stream.
     fn build_failure(tok: Token, position: usize, msg: &'static str) -> Self::Failure;
 
@@ -274,19 +279,20 @@ fn expand_macro<'cx>(
                 is_local,
             });
         }
-        Err(CanRetry::No(_)) => {
-            debug!("Will not retry matching as an error was emitted already");
+        Err(EmitErrorByRetrying::No(_)) => {
+            // Do not emit an error because one has already been emitted
+            debug!("expand_macro: error was emitted already");
             return DummyResult::any(sp);
         }
-        Err(CanRetry::Yes) => {
-            // Retry and emit a better error below.
+        Err(EmitErrorByRetrying::Yes) => {
+            // Emit a better error by retrying macro expansion with a tracker
+            debug!("expand_macro: will emit an error by retrying matching");
+            return diagnostics::failed_to_match_macro(cx, sp, def_span, name, arg, lhses);
         }
     }
-
-    diagnostics::failed_to_match_macro(cx, sp, def_span, name, arg, lhses)
 }
 
-pub(super) enum CanRetry {
+pub(super) enum EmitErrorByRetrying {
     Yes,
     /// We are not allowed to retry macro expansion as a fatal error has been emitted already.
     No(ErrorGuaranteed),
@@ -302,7 +308,7 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
     arg: &TokenStream,
     lhses: &'matcher [Vec<MatcherLoc>],
     track: &mut T,
-) -> Result<(usize, NamedMatches), CanRetry> {
+) -> Result<(usize, NamedMatches), EmitErrorByRetrying> {
     debug!("Inside try_match_macro, token_stream: {arg:?}, lhses: {lhses:?}");
     // We create a base parser that can be used for the "black box" parts.
     // Every iteration needs a fresh copy of that parser. However, the parser
@@ -340,7 +346,7 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
         track.after_arm(&result);
 
         match result {
-            Success(named_matches) => {
+            ArmMatchSucceeded(named_matches) => {
                 debug!("Parsed arm successfully");
                 // The matcher was `Success(..)`ful.
                 // Merge the gated spans from parsing the matcher with the preexisting ones.
@@ -348,19 +354,19 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
 
                 return Ok((i, named_matches));
             }
-            Failure(_) => {
+            RetryNextArmBecauseArmMatchFailed(_) => {
                 trace!("Failed to match arm, trying the next one");
                 // Try the next arm.
             }
-            Error(_, s) => {
+            AbortBecauseFatalError(_, s) => {
                 debug!("Fatal error occurred during matching: {s}");
                 // We haven't emitted an error yet, so we can retry.
-                return Err(CanRetry::Yes);
+                return Err(EmitErrorByRetrying::Yes);
             }
-            ErrorReported(guarantee) => {
+            AbortBecauseErrorAlreadyReported(guarantee) => {
                 debug!("Fatal error occurred and was reported during matching");
                 // An error has been reported already, we cannot retry as that would cause duplicate errors.
-                return Err(CanRetry::No(guarantee));
+                return Err(EmitErrorByRetrying::No(guarantee));
             }
         }
 
@@ -369,7 +375,7 @@ pub(super) fn try_match_macro<'matcher, T: Tracker<'matcher>>(
         mem::swap(&mut gated_spans_snapshot, &mut sess.gated_spans.spans.borrow_mut());
     }
 
-    Err(CanRetry::Yes)
+    Err(EmitErrorByRetrying::Yes)
 }
 
 // Note that macro-by-example's input is also matched against a token tree:
@@ -460,8 +466,8 @@ pub fn compile_declarative_macro(
         TtParser::new(Ident::with_dummy_span(if macro_rules { kw::MacroRules } else { kw::Macro }));
     let argument_map =
         match tt_parser.parse_tt(&mut Cow::Owned(parser), &argument_gram, &mut NoopTracker) {
-            Success(m) => m,
-            Failure(()) => {
+            ArmMatchSucceeded(m) => m,
+            RetryNextArmBecauseArmMatchFailed(()) => {
                 // The fast `NoopTracker` doesn't have any info on failure, so we need to retry it with another one
                 // that gives us the information we need.
                 // For this we need to reclone the macro body as the previous parser consumed it.
@@ -472,7 +478,7 @@ pub fn compile_declarative_macro(
                     &argument_gram,
                     &mut diagnostics::FailureForwarder,
                 );
-                let Failure((token, _, msg)) = parse_result else {
+                let RetryNextArmBecauseArmMatchFailed((token, _, msg)) = parse_result else {
                     unreachable!("matcher returned something other than Failure after retry");
                 };
 
@@ -484,14 +490,14 @@ pub fn compile_declarative_macro(
                 err.emit();
                 return dummy_syn_ext();
             }
-            Error(sp, msg) => {
+            AbortBecauseFatalError(sp, msg) => {
                 sess.parse_sess
                     .span_diagnostic
                     .struct_span_err(sp.substitute_dummy(def.span), msg)
                     .emit();
                 return dummy_syn_ext();
             }
-            ErrorReported(_) => {
+            AbortBecauseErrorAlreadyReported(_) => {
                 return dummy_syn_ext();
             }
         };
