@@ -3,7 +3,7 @@ use crate::errors::{
     CountRepetitionMisplaced, MetaVarExprUnrecognizedVar, MetaVarsDifSeqMatchers, MustRepeatOnce,
     NoSyntaxVarsExprRepeat, VarStillRepeating,
 };
-use crate::mbe::macro_parser::{MatchedNonterminal, MatchedSeq, MatchedTokenTree, NamedMatch};
+use crate::mbe::macro_parser::{MatchedNonterminal, MatchedSeq, MatchedTokenTree, MetaVarMatch};
 use crate::mbe::{self, MetaVarExpr};
 use rustc_ast::mut_visit::{self, MutVisitor};
 use rustc_ast::token::{self, Delimiter, Token, TokenKind};
@@ -78,7 +78,7 @@ impl<'a> Iterator for Frame<'a> {
 /// Along the way, we do some additional error checking.
 pub(super) fn transcribe<'a>(
     cx: &ExtCtxt<'a>,
-    interp: &FxHashMap<MacroRulesNormalizedIdent, NamedMatch>,
+    interp: &FxHashMap<MacroRulesNormalizedIdent, MetaVarMatch>,
     src: &mbe::Delimited,
     src_span: DelimSpan,
     transparency: Transparency,
@@ -311,9 +311,9 @@ pub(super) fn transcribe<'a>(
 /// made a mistake, and we return `None`.
 fn lookup_cur_matched<'a>(
     ident: MacroRulesNormalizedIdent,
-    interpolations: &'a FxHashMap<MacroRulesNormalizedIdent, NamedMatch>,
+    interpolations: &'a FxHashMap<MacroRulesNormalizedIdent, MetaVarMatch>,
     repeats: &[(usize, usize)],
-) -> Option<&'a NamedMatch> {
+) -> Option<&'a MetaVarMatch> {
     interpolations.get(&ident).map(|mut matched| {
         for &(idx, _) in repeats {
             match matched {
@@ -388,7 +388,7 @@ impl LockstepIterSize {
 /// `y`; otherwise, we can't transcribe them both at the given depth.
 fn lockstep_iter_size(
     tree: &mbe::TokenTree,
-    interpolations: &FxHashMap<MacroRulesNormalizedIdent, NamedMatch>,
+    interpolations: &FxHashMap<MacroRulesNormalizedIdent, MetaVarMatch>,
     repeats: &[(usize, usize)],
 ) -> LockstepIterSize {
     use mbe::TokenTree;
@@ -440,7 +440,7 @@ fn lockstep_iter_size(
 fn count_repetitions<'a>(
     cx: &ExtCtxt<'a>,
     depth_opt: Option<usize>,
-    mut matched: &NamedMatch,
+    mut matched: &MetaVarMatch,
     repeats: &[(usize, usize)],
     sp: &DelimSpan,
 ) -> PResult<'a, usize> {
@@ -450,7 +450,7 @@ fn count_repetitions<'a>(
         cx: &ExtCtxt<'a>,
         declared_lhs_depth: usize,
         depth_opt: Option<usize>,
-        matched: &NamedMatch,
+        matched: &MetaVarMatch,
         sp: &DelimSpan,
     ) -> PResult<'a, usize> {
         match matched {
@@ -497,8 +497,8 @@ fn count_repetitions<'a>(
 fn matched_from_ident<'ctx, 'interp, 'rslt>(
     cx: &ExtCtxt<'ctx>,
     ident: Ident,
-    interp: &'interp FxHashMap<MacroRulesNormalizedIdent, NamedMatch>,
-) -> PResult<'ctx, &'rslt NamedMatch>
+    interp: &'interp FxHashMap<MacroRulesNormalizedIdent, MetaVarMatch>,
+) -> PResult<'ctx, &'rslt MetaVarMatch>
 where
     'interp: 'rslt,
 {
@@ -532,7 +532,7 @@ fn out_of_bounds_err<'a>(
 fn transcribe_metavar_expr<'a>(
     cx: &ExtCtxt<'a>,
     expr: &MetaVarExpr,
-    interp: &FxHashMap<MacroRulesNormalizedIdent, NamedMatch>,
+    interp: &FxHashMap<MacroRulesNormalizedIdent, MetaVarMatch>,
     marker: &mut Marker,
     repeats: &[(usize, usize)],
     result: &mut Vec<TokenTree>,
