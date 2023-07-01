@@ -489,7 +489,7 @@ impl TtParser {
 
         while let Some(mut match_cursor) = self.cur_match_cursors.pop() {
             let matcher_loc = &matcher[match_cursor.idx];
-            debug!("current match matcher_loc: {matcher_loc:?}");
+            debug!("match_token: current match matcher_loc: {matcher_loc:?}");
             track.before_match_loc(self, matcher_loc);
 
             match matcher_loc {
@@ -509,7 +509,7 @@ impl TtParser {
                         self.cur_match_cursors.push(match_cursor);
                     } else if token_name_eq(&t, token) {
                         match_cursor.idx += 1;
-                        debug!("match_token: MatcherLoc::Token token {token:?} matched.");
+                        debug!("match_token: MatcherLoc::Token token matched: {token:?}");
                         self.next_match_cursors.push(match_cursor);
                     }
                 }
@@ -566,7 +566,6 @@ impl TtParser {
                     debug!(
                         "match_token: MatcherLoc::Sequence entering sequence. New matcher_loc: {matcher_loc}."
                     );
-                    debug!("match_token: MatcherLoc::Sequence cur_mps.push({match_cursor:?}).");
                     self.cur_match_cursors.push(match_cursor);
                 }
                 &MatcherLoc::SequenceKleeneOpNoSep { op, idx_first } => {
@@ -926,6 +925,9 @@ impl TtParser {
                     match ret_val.entry(MacroRulesNormalizedIdent::new(bind)) {
                         Vacant(spot) => spot.insert(res.next().unwrap()),
                         Occupied(..) => {
+                            debug!(
+                                "ensure_unique_metavariables: error: duplicate meta-variables found."
+                            );
                             return AbortBecauseFatalError(
                                 span,
                                 format!("duplicated bind name: {}", bind),
@@ -942,6 +944,7 @@ impl TtParser {
                 }
             }
         }
+        debug!("ensure_unique_metavariables: no duplicate meta-variables found.");
         ArmMatchSucceeded(ret_val)
     }
 }
