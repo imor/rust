@@ -100,10 +100,13 @@ use std::rc::Rc;
 /// simply incrementing the current matcher position index by one.
 #[derive(Debug, PartialEq, Clone)]
 pub(crate) enum MatcherLoc {
+    /// A raw token like abc, ; or =>
     Token {
         token: Token,
     },
+    /// A delimited sequence like (abc)
     Delimited,
+    /// A repetition sequence
     Sequence {
         op: KleeneOp,
         num_metavar_decls: usize,
@@ -111,16 +114,20 @@ pub(crate) enum MatcherLoc {
         next_metavar: usize,
         seq_depth: usize,
     },
+    /// A kleene operator after a repetition sequence without a separator before it
     SequenceKleeneOpNoSep {
         op: KleeneOp,
         idx_first: usize,
     },
+    /// A separator after a repetition sequence
     SequenceSep {
         separator: Token,
     },
+    /// A kleene operator after a repetition sequence with a separator before it
     SequenceKleeneOpAfterSep {
         idx_first: usize,
     },
+    /// A meta-variable declaration. For example $e:expr
     MetaVarDecl {
         span: Span,
         bind: Ident,
@@ -128,6 +135,7 @@ pub(crate) enum MatcherLoc {
         next_metavar: usize,
         seq_depth: usize,
     },
+    /// Last location after every other MatcherLoc
     Eof,
 }
 
@@ -491,13 +499,13 @@ impl TtParser {
                     // another mp in `cur_mps` will match.
                     if matches!(t, Token { kind: DocComment(..), .. }) {
                         mp.idx += 1;
+                        debug!("MatcherLoc::Token skipping doc comment token.");
                         debug!("MatcherLoc::Token cur_mps.push({mp:?}).");
                         self.cur_mps.push(mp);
                     } else if token_name_eq(&t, token) {
                         mp.idx += 1;
                         debug!("MatcherLoc::Token next_mps.push({mp:?}).");
                         self.next_mps.push(mp);
-                    } else if token_name_eq(&t, token) {
                     }
                 }
                 MatcherLoc::Delimited => {

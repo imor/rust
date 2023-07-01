@@ -83,16 +83,17 @@ impl Display for KleeneOp {
 /// `MetaVarExpr` are "first-class" token trees. Useful for parsing macros.
 #[derive(Debug, PartialEq, Encodable, Decodable)]
 enum TokenTree {
+    /// A raw token like abc or ; or =>
     Token(Token),
-    /// A delimited sequence, e.g. `($e:expr)` (RHS) or `{ $e }` (LHS).
+    /// A delimited sequence, for example, `($e:expr)` (LHS) or `{ $e }` (RHS).
     Delimited(DelimSpan, Delimited),
-    /// A kleene-style repetition sequence, e.g. `$($e:expr)*` (RHS) or `$($e),*` (LHS).
+    /// A kleene-style repetition sequence, for example, `$($e:expr)*` (LHS) or `$($e),*` (RHS).
     Sequence(DelimSpan, SequenceRepetition),
-    /// e.g., `$var`.
+    /// A meta variable, for example, `$var`. Only appears on the RHS.
     MetaVar(Span, Ident),
-    /// e.g., `$var:expr`. Only appears on the LHS.
+    /// A meta-variable declaration. For example, `$var:expr`. Only appears on the LHS.
     MetaVarDecl(Span, Ident /* name to bind */, Option<NonterminalKind>),
-    /// A meta-variable expression inside `${...}`.
+    /// A meta-variable expression inside `${...}`. Only appears on the RHS.
     MetaVarExpr(DelimSpan, MetaVarExpr),
 }
 
