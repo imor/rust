@@ -93,7 +93,8 @@ pub(super) fn transcribe<'a>(
 
     // We descend into the RHS (`src`), expanding things as we go. This stack contains the things
     // we have yet to expand/are still expanding. We start the stack off with the whole RHS.
-    let mut pending_expansions_stack: SmallVec<[Frame<'_>; 1]> = smallvec![Frame::new(&rhs, rhs_span)];
+    let mut pending_expansions_stack: SmallVec<[Frame<'_>; 1]> =
+        smallvec![Frame::new(&rhs, rhs_span)];
 
     // As we descend in the RHS, we will need to be able to match nested sequences of matchers.
     // `repeats` keeps track of where we are in matching at each level, with the last element being
@@ -116,7 +117,9 @@ pub(super) fn transcribe<'a>(
     let mut marker = Marker(cx.current_expansion.id, transparency);
 
     loop {
-        debug!("Expanding last frame from pending expansions stack. PEStack: {pending_expansions_stack:?}");
+        debug!(
+            "Expanding last frame from pending expansions stack. PEStack: {pending_expansions_stack:?}"
+        );
         // Look at the last frame on the stack.
         // If it still has a TokenTree we have not looked at yet, use that tree.
         let Some(tree) = pending_expansions_stack.last_mut().unwrap().next() else {
@@ -208,11 +211,15 @@ pub(super) fn transcribe<'a>(
                                 // FIXME: this really ought to be caught at macro definition
                                 // time... It happens when the Kleene operator in the matcher and
                                 // the body for the same meta-variable do not match.
-                                debug!("seq LockstepIterSize::Constraint len == 0 . Err: MustRepeatOnce");
+                                debug!(
+                                    "seq LockstepIterSize::Constraint len == 0 . Err: MustRepeatOnce"
+                                );
                                 return Err(cx.create_err(MustRepeatOnce { span: sp.entire() }));
                             }
                         } else {
-                            debug!("seq LockstepIterSize::Constraint len != 0. repeats_stack push (0, {len})");
+                            debug!(
+                                "seq LockstepIterSize::Constraint len != 0. repeats_stack push (0, {len})"
+                            );
                             // 0 is the initial counter (we have done 0 repetitions so far). `len`
                             // is the total number of repetitions we should generate.
                             repeats_stack.push((0, len));
@@ -236,7 +243,9 @@ pub(super) fn transcribe<'a>(
                 // Find the matched nonterminal from the macro invocation, and use it to replace
                 // the meta-var.
                 let ident = MacroRulesNormalizedIdent::new(original_ident);
-                if let Some(cur_matched) = lookup_cur_matched(ident, met_var_matches, &repeats_stack) {
+                if let Some(cur_matched) =
+                    lookup_cur_matched(ident, met_var_matches, &repeats_stack)
+                {
                     match cur_matched {
                         MatchedTokenTree(tt) => {
                             // `tt`s are emitted into the output stream directly as "raw tokens",
@@ -272,8 +281,18 @@ pub(super) fn transcribe<'a>(
 
             // Replace meta-variable expressions with the result of their expansion.
             mbe::TokenTree::MetaVarExpr(sp, expr) => {
-                debug!("The last token tree frame from the stack is a meta-var expr, tree: {tree:?}");
-                transcribe_metavar_expr(cx, expr, met_var_matches, &mut marker, &repeats_stack, &mut result, &sp)?;
+                debug!(
+                    "The last token tree frame from the stack is a meta-var expr, tree: {tree:?}"
+                );
+                transcribe_metavar_expr(
+                    cx,
+                    expr,
+                    met_var_matches,
+                    &mut marker,
+                    &repeats_stack,
+                    &mut result,
+                    &sp,
+                )?;
             }
 
             // If we are entering a new delimiter, we push its contents to the `pending_expansions_stack` to be
