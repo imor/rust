@@ -251,6 +251,7 @@ pub(super) fn transcribe<'a>(
                             // `tt`s are emitted into the output stream directly as "raw tokens",
                             // without wrapping them into groups.
                             let token = tt.clone();
+                            debug!("push tt token to result: {token:?}");
                             result.push(token);
                         }
                         MatchedNonterminal(nt) => {
@@ -259,10 +260,12 @@ pub(super) fn transcribe<'a>(
                             // `Interpolated` is currently used for such groups in rustc parser.
                             marker.visit_span(&mut sp);
                             let token = TokenTree::token_alone(token::Interpolated(nt.clone()), sp);
+                            debug!("push non-terminal token to result: {token:?}");
                             result.push(token);
                         }
                         MatchedSeq(..) => {
                             // We were unable to descend far enough. This is an error.
+                            debug!("err VarStillRepeating");
                             return Err(cx.create_err(VarStillRepeating { span: sp, ident }));
                         }
                     }
@@ -272,6 +275,7 @@ pub(super) fn transcribe<'a>(
                     marker.visit_span(&mut sp);
                     marker.visit_ident(&mut original_ident);
                     result.push(TokenTree::token_alone(token::Dollar, sp));
+                    debug!("push $var to result: ${original_ident:?}");
                     result.push(TokenTree::Token(
                         Token::from_ast_ident(original_ident),
                         Spacing::Alone,
@@ -309,6 +313,7 @@ pub(super) fn transcribe<'a>(
                     idx: 0,
                     span,
                 });
+                debug!("push result to pending expansions stack: {result:?}");
                 result_stack.push(mem::take(&mut result));
             }
 
@@ -319,6 +324,7 @@ pub(super) fn transcribe<'a>(
                 let mut token = token.clone();
                 mut_visit::visit_token(&mut token, &mut marker);
                 let tt = TokenTree::Token(token, Spacing::Alone);
+                debug!("push token to result: {tt:?}");
                 result.push(tt);
             }
 
