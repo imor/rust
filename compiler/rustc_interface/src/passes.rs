@@ -36,7 +36,7 @@ use rustc_span::symbol::{Symbol, sym};
 use rustc_span::{FileName, SourceFileHash, SourceFileHashAlgorithm};
 use rustc_target::spec::PanicStrategy;
 use rustc_trait_selection::traits;
-use tracing::{info, instrument};
+use tracing::{debug, info, instrument, trace};
 
 use crate::interface::{Compiler, Result};
 use crate::{errors, proc_macro_decls, util};
@@ -53,6 +53,8 @@ pub(crate) fn parse<'a>(sess: &'a Session) -> Result<ast::Crate> {
             parser.parse_crate_mod()
         })
         .map_err(|parse_error| parse_error.emit())?;
+
+    debug!("crate AST: {krate:?}");
 
     if sess.opts.unstable_opts.input_stats {
         eprintln!("Lines of code:             {}", sess.source_map().count_lines());
@@ -158,6 +160,7 @@ fn configure_and_expand(
 
     // Expand all macros
     krate = sess.time("macro_expand_crate", || {
+        trace!("Starting crate macro expansion");
         // Windows dlls do not have rpaths, so they don't know how to find their
         // dependencies. It's up to us to tell the system where to find all the
         // dependent dlls. Note that this uses cfg!(windows) as opposed to
@@ -193,6 +196,7 @@ fn configure_and_expand(
 
         // Create the config for macro expansion
         let recursion_limit = get_recursion_limit(pre_configured_attrs, sess);
+        trace!("Recursion limit: {recursion_limit:#?}");
         let cfg = rustc_expand::expand::ExpansionConfig {
             crate_name: crate_name.to_string(),
             features,
@@ -202,6 +206,7 @@ fn configure_and_expand(
             span_debug: sess.opts.unstable_opts.span_debug,
             proc_macro_backtrace: sess.opts.unstable_opts.proc_macro_backtrace,
         };
+        trace!("Expansion config: {cfg:#?}");
 
         let lint_store = LintStoreExpandImpl(lint_store);
         let mut ecx = ExtCtxt::new(sess, cfg, resolver, Some(&lint_store));
@@ -618,6 +623,7 @@ fn resolver_for_lowering_raw<'tcx>(
     tcx: TyCtxt<'tcx>,
     (): (),
 ) -> (&'tcx Steal<(ty::ResolverAstLowering, Lrc<ast::Crate>)>, &'tcx ty::ResolverGlobalCtxt) {
+    trace!("inside resolver_for_lowering_raw");
     let arenas = Resolver::arenas();
     let _ = tcx.registered_tools(()); // Uses `crate_for_resolver`.
     let (krate, pre_configured_attrs) = tcx.crate_for_resolver(()).steal();

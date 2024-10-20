@@ -2216,6 +2216,7 @@ impl<'a, 'b> MutVisitor for InvocationCollector<'a, 'b> {
     }
 }
 
+#[derive(Debug)]
 pub struct ExpansionConfig<'feat> {
     pub crate_name: String,
     pub features: &'feat Features,
