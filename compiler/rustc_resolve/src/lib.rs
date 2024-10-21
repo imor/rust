@@ -1959,7 +1959,7 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
     }
 
     fn resolve_crate_root(&mut self, ident: Ident) -> Module<'ra> {
-        debug!("resolve_crate_root({:?})", ident);
+        tracing::trace!("macro_exploration: resolve_crate_root({ident:#?})");
         let mut ctxt = ident.span.ctxt();
         let mark = if ident.name == kw::DollarCrate {
             // When resolving `$crate` from a `macro_rules!` invoked in a `macro`,
@@ -1969,8 +1969,8 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
             // definitions actually produced by `macro` and `macro` definitions produced by
             // `macro_rules!`, but at least such configurations are not stable yet.
             ctxt = ctxt.normalize_to_macro_rules();
-            debug!(
-                "resolve_crate_root: marks={:?}",
+            tracing::trace!(
+                "macro_exploration: resolve_crate_root: marks={:?}",
                 ctxt.marks().into_iter().map(|(i, t)| (i.expn_data(), t)).collect::<Vec<_>>()
             );
             let mut iter = ctxt.marks().into_iter().rev().peekable();
@@ -1984,8 +1984,8 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
                     break;
                 }
             }
-            debug!(
-                "resolve_crate_root: found opaque mark {:?} {:?}",
+            tracing::trace!(
+                "macro_exploration: resolve_crate_root: found opaque mark {:?} {:?}",
                 result,
                 result.map(|r| r.expn_data())
             );
@@ -1997,23 +1997,24 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
                     break;
                 }
             }
-            debug!(
-                "resolve_crate_root: found semi-transparent mark {:?} {:?}",
+            tracing::trace!(
+                "macro_exploration: resolve_crate_root: found semi-transparent mark {:?} {:?}",
                 result,
                 result.map(|r| r.expn_data())
             );
             result
         } else {
-            debug!("resolve_crate_root: not DollarCrate");
+            tracing::trace!("macro_exploration: resolve_crate_root: not DollarCrate");
             ctxt = ctxt.normalize_to_macros_2_0();
             ctxt.adjust(ExpnId::root())
         };
         let module = match mark {
             Some(def) => self.expn_def_scope(def),
             None => {
-                debug!(
-                    "resolve_crate_root({:?}): found no mark (ident.span = {:?})",
-                    ident, ident.span
+                tracing::trace!(
+                    "macro_exploration: resolve_crate_root({:?}): found no mark (ident.span = {:?})",
+                    ident,
+                    ident.span
                 );
                 return self.graph_root;
             }
@@ -2021,8 +2022,8 @@ impl<'ra, 'tcx> Resolver<'ra, 'tcx> {
         let module = self.expect_module(
             module.opt_def_id().map_or(LOCAL_CRATE, |def_id| def_id.krate).as_def_id(),
         );
-        debug!(
-            "resolve_crate_root({:?}): got module {:?} ({:?}) (ident.span = {:?})",
+        tracing::trace!(
+            "macro_exploration: resolve_crate_root({:?}): got module {:?} ({:?}) (ident.span = {:?})",
             ident,
             module,
             module.kind.name(),

@@ -187,6 +187,7 @@ impl<'ra, 'tcx> ResolverExpand for Resolver<'ra, 'tcx> {
     }
 
     fn resolve_dollar_crates(&mut self) {
+        tracing::trace!("macro_exploration: inside Resolver::resolve_dollar_crates");
         hygiene::update_dollar_crate_names(|ctxt| {
             let ident = Ident::new(kw::DollarCrate, DUMMY_SP.with_ctxt(ctxt));
             match self.resolve_crate_root(ident).kind {
@@ -216,6 +217,10 @@ impl<'ra, 'tcx> ResolverExpand for Resolver<'ra, 'tcx> {
     }
 
     fn register_builtin_macro(&mut self, name: Symbol, ext: SyntaxExtensionKind) {
+        tracing::trace!(
+            "macro_exploration: registering builtin macro {name:#?} of kind {}",
+            ext.as_str()
+        );
         if self.builtin_macros.insert(name, BuiltinMacroState::NotYetSeen(ext)).is_some() {
             self.dcx().bug(format!("built-in macro `{name}` was already registered"));
         }

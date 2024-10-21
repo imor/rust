@@ -616,6 +616,7 @@ pub fn walk_chain_collapsed(span: Span, to: Span) -> Span {
 }
 
 pub fn update_dollar_crate_names(mut get_name: impl FnMut(SyntaxContext) -> Symbol) {
+    tracing::trace!("macro_exploration: inside hygiene::update_dollar_crate_names");
     // The new contexts that need updating are at the end of the list and have `$crate` as a name.
     let (len, to_update) = HygieneData::with(|data| {
         (
