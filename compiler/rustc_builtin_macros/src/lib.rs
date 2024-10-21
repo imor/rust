@@ -62,6 +62,7 @@ pub mod util;
 rustc_fluent_macro::fluent_messages! { "../messages.ftl" }
 
 pub fn register_builtin_macros(resolver: &mut dyn ResolverExpand) {
+    tracing::trace!("macro_exploration: registering builtin macros");
     let mut register = |name, kind| resolver.register_builtin_macro(name, kind);
     macro register_bang($($name:ident: $f:expr,)*) {
         $(register(sym::$name, SyntaxExtensionKind::LegacyBang(Box::new($f as MacroExpanderFn)));)*

@@ -57,6 +57,7 @@ macro_rules! ast_fragments {
     ) => {
         /// A fragment of AST that can be produced by a single macro expansion.
         /// Can also serve as an input and intermediate result for macro expansion operations.
+        #[derive(Debug)]
         pub enum AstFragment {
             OptExpr(Option<P<ast::Expr>>),
             MethodReceiverExpr(P<ast::Expr>),
@@ -64,7 +65,7 @@ macro_rules! ast_fragments {
         }
 
         /// "Discriminant" of an AST fragment.
-        #[derive(Copy, Clone, PartialEq, Eq)]
+        #[derive(Copy, Clone, PartialEq, Eq, Debug)]
         pub enum AstFragmentKind {
             OptExpr,
             MethodReceiverExpr,
@@ -131,8 +132,10 @@ macro_rules! ast_fragments {
             }
 
             pub(crate) fn mut_visit_with<F: MutVisitor>(&mut self, vis: &mut F) {
+                tracing::trace!("macro_exploration: inside AstFragment::mut_visit_with");
                 match self {
                     AstFragment::OptExpr(opt_expr) => {
+                        tracing::trace!("macro_exploration: OptExpr");
                         visit_clobber(opt_expr, |opt_expr| {
                             if let Some(expr) = opt_expr {
                                 vis.filter_map_expr(expr)
@@ -141,10 +144,18 @@ macro_rules! ast_fragments {
                             }
                         });
                     }
-                    AstFragment::MethodReceiverExpr(expr) => vis.visit_method_receiver_expr(expr),
-                    $($(AstFragment::$Kind(ast) => vis.$mut_visit_ast(ast),)?)*
-                    $($(AstFragment::$Kind(ast) =>
-                        ast.flat_map_in_place(|ast| vis.$flat_map_ast_elt(ast, $($args)*)),)?)*
+                    AstFragment::MethodReceiverExpr(expr) => {
+                        tracing::trace!("macro_exploration: MethodReceiverExpr");
+                        vis.visit_method_receiver_expr(expr);
+                    }
+                    $($(AstFragment::$Kind(ast) => {
+                        tracing::trace!("macro_exploration: calling {}", stringify!($mut_visit_ast));
+                        vis.$mut_visit_ast(ast);
+                    })?)*
+                    $($(AstFragment::$Kind(ast) => {
+                        tracing::trace!("macro_exploration: calling {}", stringify!($flat_map_ast_elt));
+                        ast.flat_map_in_place(|ast| vis.$flat_map_ast_elt(ast, $($args)*));
+                    })?)*
                 }
             }
 
@@ -403,6 +414,7 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
     }
 
     pub fn expand_crate(&mut self, krate: ast::Crate) -> ast::Crate {
+        tracing::trace!("macro_exploration: inside MacroExpander::expand_crate");
         let file_path = match self.cx.source_map().span_to_filename(krate.spans.inner_span) {
             FileName::Real(name) => name
                 .into_local_path()
@@ -424,6 +436,9 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
 
     /// Recursively expand all macro invocations in this AST fragment.
     pub fn fully_expand_fragment(&mut self, input_fragment: AstFragment) -> AstFragment {
+        tracing::trace!(
+            "macro_exploration: inside MacroExpander::fully_expand_fragment. input_fragment: {input_fragment:#?}"
+        );
         let orig_expansion_data = self.cx.current_expansion.clone();
         let orig_force_mode = self.cx.force_mode;
 
@@ -580,6 +595,7 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
         mut fragment: AstFragment,
         extra_placeholders: &[NodeId],
     ) -> (AstFragment, Vec<(Invocation, Option<Lrc<SyntaxExtension>>)>) {
+        tracing::trace!("macro_exploration: inside MacroExpander::collect_invocations");
         // Resolve `$crate`s in the fragment for pretty-printing.
         self.cx.resolver.resolve_dollar_crates();
 
@@ -2045,6 +2061,7 @@ impl<'a, 'b> InvocationCollector<'a, 'b> {
         &mut self,
         node: &mut Node,
     ) {
+        tracing::trace!("macro_exploration: InvocationCollector::visit_node");
         loop {
             return match self.take_first_attr(node) {
                 Some((attr, pos, derives)) => match attr.name_or_empty() {
@@ -2167,6 +2184,9 @@ impl<'a, 'b> MutVisitor for InvocationCollector<'a, 'b> {
     }
 
     fn visit_crate(&mut self, node: &mut ast::Crate) {
+        tracing::trace!(
+            "macro_exploration: inside <InvocationCollector as MutVisitor>::visit_crate"
+        );
         self.visit_node(node)
     }
 

@@ -720,6 +720,21 @@ pub enum SyntaxExtensionKind {
     GlobDelegation(Box<dyn GlobDelegationExpander + sync::DynSync + sync::DynSend>),
 }
 
+impl SyntaxExtensionKind {
+    pub fn as_str(&self) -> &str {
+        match self {
+            SyntaxExtensionKind::Bang(_) => "Bang",
+            SyntaxExtensionKind::LegacyBang(_) => "LegacyBang",
+            SyntaxExtensionKind::Attr(_) => "Attr",
+            SyntaxExtensionKind::LegacyAttr(_) => "LegacyAttr",
+            SyntaxExtensionKind::NonMacroAttr => "NonMacroAttr",
+            SyntaxExtensionKind::Derive(_) => "Derive",
+            SyntaxExtensionKind::LegacyDerive(_) => "LegacyDerive",
+            SyntaxExtensionKind::GlobDelegation(_) => "GlobeDelegation",
+        }
+    }
+}
+
 /// A struct representing a macro definition in "lowered" form ready for expansion.
 pub struct SyntaxExtension {
     /// A syntax extension kind.
