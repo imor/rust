@@ -1,4 +1,5 @@
 use std::default::Default;
+use std::fmt::Debug;
 use std::iter;
 use std::path::Component::Prefix;
 use std::path::{Path, PathBuf};
@@ -764,6 +765,24 @@ pub struct SyntaxExtension {
     pub collapse_debuginfo: bool,
 }
 
+impl Debug for SyntaxExtension {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SyntaxExtension")
+            .field("kind", &self.kind.as_str())
+            .field("span", &self.span)
+            .field("allow_internal_unstable", &self.allow_internal_unstable)
+            .field("stability", &self.stability)
+            .field("deprecation", &self.deprecation)
+            .field("helper_attrs", &self.helper_attrs)
+            .field("edition", &self.edition)
+            .field("builtin_name", &self.builtin_name)
+            .field("allow_internal_unsafe", &self.allow_internal_unsafe)
+            .field("local_inner_macros", &self.local_inner_macros)
+            .field("collapse_debuginfo", &self.collapse_debuginfo)
+            .finish()
+    }
+}
+
 impl SyntaxExtension {
     /// Returns which kind of macro calls this syntax extension.
     pub fn macro_kind(&self) -> MacroKind {
@@ -1129,7 +1148,7 @@ impl ModuleData {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ExpansionData {
     pub id: LocalExpnId,
     pub depth: usize,

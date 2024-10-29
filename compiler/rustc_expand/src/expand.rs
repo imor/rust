@@ -335,12 +335,14 @@ impl AstFragmentKind {
     }
 }
 
+#[derive(Debug)]
 pub struct Invocation {
     pub kind: InvocationKind,
     pub fragment_kind: AstFragmentKind,
     pub expansion_data: ExpansionData,
 }
 
+#[derive(Debug)]
 pub enum InvocationKind {
     Bang {
         mac: P<ast::MacCall>,
@@ -446,6 +448,10 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
         let (mut fragment_with_placeholders, mut invocations) =
             self.collect_invocations(input_fragment, &[]);
 
+        tracing::trace!(
+            "macro_exploration: fragment_with_placeholders: {fragment_with_placeholders:#?}, invocations: {invocations:#?}"
+        );
+
         // Optimization: if we resolve all imports now,
         // we'll be able to immediately resolve most of imported macros.
         self.resolve_imports();
@@ -498,6 +504,7 @@ impl<'a, 'b> MacroExpander<'a, 'b> {
                     }
                 }
             };
+            tracing::trace!("macro_exploration: resolved macro invocations: {ext:#?}");
 
             let ExpansionData { depth, id: expn_id, .. } = invoc.expansion_data;
             let depth = depth - orig_expansion_data.depth;
